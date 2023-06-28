@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aplicación de Cámara</title>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Desactivar el scroll de la página */
+        }
+
+        #video-container {
+            position: relative;
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #videoElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #image-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            cursor: move;
+        }
+
+        .locked {
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            color: white;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="d-flex flex-column">
+    <div id="video-container" class="container-fluid">
+        <video id="videoElement" autoplay></video>
+    </div>
+    <div class="container-fluid">
+        <div class="row justify-content-center mt-3">
+            <div class="col-3">
+                <input type="file" id="file-input" class="form-control">
+            </div>
+            <div class="col-8 text-center">
+                <input type="range" min="0" max="100" value="50" id="opacity-slider" class="form-range"> <!-- Agregar id al slider -->
+            </div>
+            <div class="col-1 text-end">
+                <button id="lock-button" class="btn btn-primary">&#128274;</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        const videoElement = document.getElementById('videoElement');
+        const fileInput = document.getElementById('file-input');
+        const imageContainer = document.createElement('div');
+        imageContainer.id = 'image-container';
+        document.body.appendChild(imageContainer);
+
+        let isDragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+        let initialDistance = 0;
+        let initialScale = 1;
+        let isLocked = false; // Variable para controlar el estado de bloqueo/desbloqueo
+
+        const lockButton = document.getElementById('lock-button');
+        const lockIcon = lockButton.querySelector('span');
+        lockButton.addEventListener('click', toggleLock); // Agregar evento de clic al botón de bloqueo
+
+        // Función para alternar el bloqueo/desbloqueo
+        function toggleLock() {
+            isLocked = !isLocked;
+            updateLockIcon();
+        }
+
+        // Función para actualizar el icono de candado
+        function updateLockIcon() {
+            lockIcon.innerHTML = isLocked ? '&#128274;' : '&#128275;';
+            imageContainer.classList.toggle('locked', isLocked);
+        }
+
+        // Obtener acceso a la cámara
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                videoElement.srcObject = stream;
+            } catch (error) {
+                console.error('Error al acceder a la cámara:', error);
+            }
+        }
+
+        // Cargar la imagen seleccionada en el elemento img
+        function loadImage(file) {
+            const reader = new FileReader();
+
+            reader.onload = function (event) {
+                const image = new Image();
+                image.src = event.target.result;
+                imageContainer.innerHTML = '';
+                imageContainer.appendChild(image);
+
+                // Agregar funcionalidad de arrastrar y soltar
+                image.addEventListener('mousedown', handleDragStart);
+                image.addEventListener('mousemove', handleDrag);
+                image.addEventListener('mouseup', handleDragEnd);
+                image.addEventListener('dragstart', function (event) {
+                    event.preventDefault();
+                });
+
+                // Agregar funcionalidad de modificar la transparencia con el slider
+                const opacitySlider = document.getElementById('opacity-slider');
+                opacitySlider.addEventListener('input', function (event) {
+                    const opacity = event.target.value / 100;
+                    image.style.opacity = opacity;
+                });
+
+                // Agregar funcionalidad de zoom con la rueda del ratón
+                image.addEventListener('wheel', handleZoom);
+
+                // Agregar funcionalidad de zoom con dos dedos en dispositivos táctiles
+                image.addEventListener('touchstart', handleTouchStart);
+                image.addEventListener('touchmove', handleTouchMove);
+                image.addEventListener('touchend', handleTouchEnd);
+            };
+
+            reader.readAsDataURL(file);
+        }
+
+        // Evento de cambio en el input de archivo
+        fileInput.addEventListener('change', function (event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                loadImage(file);
+            }
+        });
+
+        // Manejador del evento de inicio de arrastre
+        function handleDragStart(event) {
+            if (!isLocked) {
+                isDragging = true;
+                offsetX = event.clientX - imageContainer.offsetLeft;
+                offsetY = event.clientY - imageContainer.offsetTop;
+            }
+        }
+
+        // Manejador del evento de arrastre
+        function handleDrag(event) {
+            if (isDragging) {
+                const x = event.clientX - offsetX;
+                const y = event.clientY - offsetY;
+                imageContainer.style.left = `${x}px`;
+                imageContainer.style.top = `${y}px`;
+            }
+        }
+
+        // Manejador del evento de finalización de arrastre
+        function handleDragEnd(event) {
+            isDragging = false;
+        }
+
+        // Manejador del evento de zoom con la rueda del ratón
+        function handleZoom(event) {
+            event.preventDefault();
+
+            if (!isLocked) {
+                const delta = Math.sign(event.deltaY);
+                const scaleIncrement = 0.1;
+
+                let newScale = initialScale + delta * scaleIncrement;
+                newScale = Math.max(0.1, newScale); // Limitar el valor mínimo de escala a 0.1
+
+                imageContainer.style.transform = `translate(-50%, -50%) scale(${newScale})`;
+                initialScale = newScale;
+            }
+        }
+
+        // Manejador del evento de inicio de toque en dispositivos táctiles
+        function handleTouchStart(event) {
+            if (!isLocked && event.touches.length === 2) {
+                const touch1 = event.touches[0];
+                const touch2 = event.touches[1];
+                const dx = touch2.clientX - touch1.clientX;
+                const dy = touch2.clientY - touch1.clientY;
+
+                initialDistance = Math.sqrt(dx * dx + dy * dy);
+                initialScale = getCurrentScale();
+            }
+        }
+
+        // Manejador del evento de movimiento de toque en dispositivos táctiles
+        function handleTouchMove(event) {
+            if (!isLocked && event.touches.length === 2) {
+                const touch1 = event.touches[0];
+                const touch2 = event.touches[1];
+                const dx = touch2.clientX - touch1.clientX;
+                const dy = touch2.clientY - touch1.clientY;
+
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const scaleIncrement = 0.01;
+
+                let newScale = initialScale + (distance - initialDistance) * scaleIncrement;
+                newScale = Math.max(0.1, newScale); // Limitar el valor mínimo de escala a 0.1
+
+                imageContainer.style.transform = `translate(-50%, -50%) scale(${newScale})`;
+                initialScale = newScale;
+            }
+        }
+
+        // Manejador del evento de finalización de toque en dispositivos táctiles
+        function handleTouchEnd(event) {
+            initialDistance = 0;
+        }
+
+        // Obtener la escala actual de la imagen
+        function getCurrentScale() {
+            const transform = window.getComputedStyle(imageContainer).getPropertyValue('transform');
+            const matrix = transform.match(/^matrix\((.+)\)$/);
+            if (matrix) {
+                const matrixValues = matrix[1].split(', ');
+                return parseFloat(matrixValues[3]);
+            }
+            return 1;
+        }
+
+        // Inicializar la cámara
+        setupCamera();
+    </script>
+</body>
+</html>
